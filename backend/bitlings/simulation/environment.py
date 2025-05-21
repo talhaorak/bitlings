@@ -14,10 +14,32 @@ class Environment:
         self.bitlings: List[Bitling] = []
         # Example: {'id': uuid, 'x': float, 'y': float, 'emoji': '🍎'}
         self.food_sources: List[Dict[str, Any]] = []
+        self.obstacles: List[Dict[str, Any]] = [] # Initialize obstacles
 
         # --- Populate initial state ---
         self.add_initial_creatures(5)
         self.add_initial_food(10)
+        self.add_initial_obstacles() # Call to populate obstacles
+
+    def add_obstacle(self, x: float, y: float, radius: float, emoji: str = "🚧"):
+        """Add an obstacle to the environment."""
+        new_id = str(uuid.uuid4())
+        obstacle = {
+            'id': new_id,
+            'x': x,
+            'y': y,
+            'radius': radius,
+            'emoji': emoji
+        }
+        self.obstacles.append(obstacle)
+
+    def add_initial_obstacles(self):
+        """Populate some initial obstacles."""
+        self.add_obstacle(x=self.width/4, y=self.height/2, radius=20)
+        self.add_obstacle(x=self.width*3/4, y=self.height/2, radius=30)
+        self.add_obstacle(x=self.width/2, y=self.height/4, radius=15, emoji="🌲")
+        self.add_obstacle(x=self.width/2, y=self.height*3/4, radius=25, emoji="🌳")
+
 
     def add_bitling(self, bitling: Bitling):
         self.bitlings.append(bitling)
@@ -59,8 +81,9 @@ class Environment:
 
     def get_state(self) -> Dict[str, Any]:
         """Return the environment state for serialization."""
-        return {
+        state_dict = {
             "bitlings": [b.get_state() for b in self.bitlings],
             "food": self.food_sources,
-            # Add other environment objects later (trees, rocks, etc.)
+            "obstacles": self.obstacles # Add obstacles to state
         }
+        return state_dict

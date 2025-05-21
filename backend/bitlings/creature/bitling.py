@@ -37,6 +37,7 @@ class Bitling:
         # --- AI Network ---
         self.network = BitlingNetwork()
         self.action_chosen_by_network_for_learning = None # For learning
+        self.target_food_item_id = None # ID of the food item being targeted
 
     def update_passive(self, time_delta: float):
         """Update needs and passive states over time."""
@@ -81,11 +82,11 @@ class Bitling:
         if self.current_action == "dead":
             return
 
-        # Determine food_nearby status
-        food_nearby = bool(self.environment.food_sources) # True if list is not empty
+        # Perceive the environment
+        distance, food_dx, food_dy = self.perceive_environment()
 
-        # Set network inputs
-        self.network.set_inputs(self.hunger, self.energy, food_nearby)
+        # Set network inputs with new sensory data
+        self.network.set_inputs(self.hunger, self.energy, distance, food_dx, food_dy)
 
         # Settle the network
         self.network.settle() # Using default iterations
@@ -97,38 +98,34 @@ class Bitling:
 
         # Handle actions that require specific setup
         if chosen_action == "seeking_food":
-            if self.environment.food_sources:
-                # Target the first available food source
-                target_food = self.environment.food_sources[0]
+            if distance != float('inf') and self.environment.food_sources:
+                # Target the first available food source from the list.
+                # Note: perceive_environment gives distance/direction to nearest,
+                # but for simplicity here, we'll target food_sources[0].
+                # A more advanced implementation might ensure target_food_pos
+                # aligns with the *perceived* nearest food item's actual coordinates.
+                target_food = self.environment.food_sources[0] # Simplified: target the first food item
                 self.target_food_pos = (target_food['x'], target_food['y'])
-                # self.eating_food_id = target_food['id'] # Deferred to execute_action's transition to "eating"
+                self.target_food_item_id = target_food['id'] # Store the ID of the targeted food
             else:
-                # Network chose to seek food, but none is available
-                self.current_action = "idle" # Default to idle to prevent errors
-                self.target_food_pos = None # Ensure no stale target
+                # Network chose to seek food, but no food is perceivable or available
+                self.current_action = "idle" 
+                self.target_food_pos = None 
+                self.target_food_item_id = None # Clear target ID as well
 
         elif chosen_action == "eating":
-            # This action is problematic if chosen directly by the network without
-            # the Bitling being at a food source. execute_action for 'eating'
-            # relies on self.eating_food_id being set, which happens when
-            # 'seeking_food' transitions to 'eating'.
-            # If not already at food (e.g. target_food_pos is None or not close enough)
-            # it might be best to switch to idle or re-evaluate.
-            # For now, we rely on execute_action to handle this potentially awkward state.
-            # A simple patch for now if not already in the process of eating:
-            if not self.eating_food_id and not self.target_food_pos: # if not already eating or seeking
-                # Check if Bitling is *at* a food source to allow "eating"
-                is_at_food = False
-                if self.environment.food_sources:
-                    for food_item in self.environment.food_sources:
-                        dist_sq = (self.x - food_item['x'])**2 + (self.y - food_item['y'])**2
-                        if dist_sq < 5**2: # Within 5 units (squared comparison)
-                            self.eating_food_id = food_item['id']
-                            is_at_food = True
-                            break
-                if not is_at_food:
-                    self.current_action = "idle" # Not at food, cannot eat. Go idle.
-
+            # If the network chooses "eating" directly:
+            # - The Bitling should ideally be very close to food (low distance).
+            # - execute_action will handle the details of finding the food item by ID
+            #   if self.eating_food_id is already set (e.g. from seeking_food transitioning to eating)
+            #   or try to find one if the Bitling is close enough.
+            # - If distance is large and network chooses "eating", it's a mis-learned behavior.
+            #   We can add a safeguard here or let execute_action handle it.
+            # For now, no special setup here; rely on execute_action.
+            # The check for `is_at_food` previously here has been removed to simplify choose_action.
+            # `execute_action` for "eating" should be robust enough to handle cases
+            # where `self.eating_food_id` is not yet set.
+            pass
 
         elif chosen_action == "seeking_sleep":
             # execute_action handles the transition to "sleeping" and sets action_timer
@@ -146,6 +143,34 @@ class Bitling:
         # Any other actions from the network that don't have specific setup
         # will just be set as current_action and execute_action will try to run them.
         # If they are not defined in execute_action, they will do nothing.
+
+    def perceive_environment(self):
+        """
+        Finds the nearest food source and returns its distance and direction vector.
+        """
+        nearest_food_item = None
+        min_dist_sq = float('inf')
+
+        if not self.environment.food_sources:
+            return (float('inf'), 0.0, 0.0)
+
+        for food in self.environment.food_sources:
+            dist_x = food['x'] - self.x
+            dist_y = food['y'] - self.y
+            dist_sq = dist_x**2 + dist_y**2
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+                nearest_food_item = food
+        
+        if nearest_food_item is not None:
+            actual_distance = math.sqrt(min_dist_sq)
+            dx = (nearest_food_item['x'] - self.x) / actual_distance if actual_distance > 0 else 0.0
+            dy = (nearest_food_item['y'] - self.y) / actual_distance if actual_distance > 0 else 0.0
+            return (actual_distance, dx, dy)
+        else:
+            # This case should ideally not be reached if food_sources was not empty initially,
+            # but as a fallback:
+            return (float('inf'), 0.0, 0.0)
 
     def execute_action(self, time_delta: float):
         """Perform the current action."""
@@ -184,11 +209,9 @@ class Bitling:
                 if dist <= move_dist_this_frame or dist < 5: # Close enough or within 5 units
                     self.current_action = "eating"
                     self.action_timer = 2.0 # Eat for 2 seconds
-                    # Assuming the target food is still the first one and available
-                    # This needs to be more robust if food can disappear or multiple bitlings compete
-                    if self.environment.food_sources:
-                         self.eating_food_id = self.environment.food_sources[0]['id'] # Store ID
+                    self.eating_food_id = self.target_food_item_id # Set ID of food being eaten
                     self.target_food_pos = None
+                    self.target_food_item_id = None # Clear the target ID
                     self.emoji = "😋"
                 else:
                     # Move towards target

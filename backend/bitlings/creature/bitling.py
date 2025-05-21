@@ -2,6 +2,7 @@ import uuid
 import random
 import math
 from typing import Dict, Any
+from backend.bitlings.ai.network import BitlingNetwork # Added BitlingNetwork import
 
 
 class Bitling:
@@ -32,6 +33,10 @@ class Bitling:
 
         # --- Hardcoded speeds for now ---
         self.move_speed = 50.0  # Units per second
+
+        # --- AI Network ---
+        self.network = BitlingNetwork()
+        self.action_chosen_by_network_for_learning = None # For learning
 
     def update_passive(self, time_delta: float):
         """Update needs and passive states over time."""
@@ -72,56 +77,82 @@ class Bitling:
         self.stress = max(0, min(100, self.stress))  # Cap stress between 0 and 100
 
     def choose_action(self):
-        """Decide the next action based on needs (AI Logic Placeholder)."""
+        """Decide the next action using the BitlingNetwork."""
         if self.current_action == "dead":
             return
 
-        STRESS_THRESHOLD = 30
+        # Determine food_nearby status
+        food_nearby = bool(self.environment.food_sources) # True if list is not empty
 
-        if self.stress > STRESS_THRESHOLD:
-            # Prioritize actions based on what contributes most to stress
-            # (Simplified: check hunger first, then energy)
-            if self.hunger > 60: # Assuming hunger is a major stressor above this
-                if self.environment.food_sources:
-                    self.current_action = "seeking_food"
-                    # Target the first food item
-                    target_food = self.environment.food_sources[0]
-                    self.target_food_pos = (target_food['x'], target_food['y'])
-                else:
-                    self.current_action = "idle" # No food, go idle
-            elif self.energy < 40: # Assuming low energy is a major stressor below this
-                self.current_action = "seeking_sleep"
-                # No specific location needed for sleeping yet
+        # Set network inputs
+        self.network.set_inputs(self.hunger, self.energy, food_nearby)
+
+        # Settle the network
+        self.network.settle() # Using default iterations
+
+        # Get chosen action from the network
+        chosen_action = self.network.get_chosen_action()
+        self.current_action = chosen_action
+        self.action_chosen_by_network_for_learning = chosen_action # Store for learning
+
+        # Handle actions that require specific setup
+        if chosen_action == "seeking_food":
+            if self.environment.food_sources:
+                # Target the first available food source
+                target_food = self.environment.food_sources[0]
+                self.target_food_pos = (target_food['x'], target_food['y'])
+                # self.eating_food_id = target_food['id'] # Deferred to execute_action's transition to "eating"
             else:
-                # Fallback if stress is high but neither hunger nor energy are extreme
-                if self.hunger > self.energy: # A simple way to pick one
-                    if self.environment.food_sources:
-                        self.current_action = "seeking_food"
-                        target_food = self.environment.food_sources[0]
-                        self.target_food_pos = (target_food['x'], target_food['y'])
-                    else:
-                        self.current_action = "idle" # No food, go idle
-                else:
-                     self.current_action = "seeking_sleep"
-                     # No specific location needed for sleeping yet
-        else:
-            # Default to wandering or idle if stress is low
-            if self.current_action == "idle" or self.current_action == "wandering":
-                if random.random() < 0.1:  # Chance to start wandering
-                    self.current_action = "wandering"
-                    self.action_timer = random.uniform(
-                        1.0, 5.0)  # Wander for 1-5 secs
-                    # TODO: Set a random target direction/position within bounds
-                else:
-                    self.current_action = "idle"
-            elif self.current_action not in ["seeking_food", "seeking_sleep"]: # if it was doing something else, make it idle.
-                self.current_action = "idle"
+                # Network chose to seek food, but none is available
+                self.current_action = "idle" # Default to idle to prevent errors
+                self.target_food_pos = None # Ensure no stale target
 
+        elif chosen_action == "eating":
+            # This action is problematic if chosen directly by the network without
+            # the Bitling being at a food source. execute_action for 'eating'
+            # relies on self.eating_food_id being set, which happens when
+            # 'seeking_food' transitions to 'eating'.
+            # If not already at food (e.g. target_food_pos is None or not close enough)
+            # it might be best to switch to idle or re-evaluate.
+            # For now, we rely on execute_action to handle this potentially awkward state.
+            # A simple patch for now if not already in the process of eating:
+            if not self.eating_food_id and not self.target_food_pos: # if not already eating or seeking
+                # Check if Bitling is *at* a food source to allow "eating"
+                is_at_food = False
+                if self.environment.food_sources:
+                    for food_item in self.environment.food_sources:
+                        dist_sq = (self.x - food_item['x'])**2 + (self.y - food_item['y'])**2
+                        if dist_sq < 5**2: # Within 5 units (squared comparison)
+                            self.eating_food_id = food_item['id']
+                            is_at_food = True
+                            break
+                if not is_at_food:
+                    self.current_action = "idle" # Not at food, cannot eat. Go idle.
+
+
+        elif chosen_action == "seeking_sleep":
+            # execute_action handles the transition to "sleeping" and sets action_timer
+            pass
+
+        elif chosen_action == "wandering":
+            self.action_timer = random.uniform(1.0, 5.0) # Set wander duration
+            # execute_action will handle movement if current_action is "wandering"
+            # and action_timer > 0
+
+        elif chosen_action == "idle":
+            # No special setup needed for idle
+            pass
+        
+        # Any other actions from the network that don't have specific setup
+        # will just be set as current_action and execute_action will try to run them.
+        # If they are not defined in execute_action, they will do nothing.
 
     def execute_action(self, time_delta: float):
         """Perform the current action."""
         if self.current_action == "dead":
             return
+
+        stress_before_action = self.stress
 
         if self.action_timer > 0:
             self.action_timer -= time_delta
@@ -182,6 +213,16 @@ class Bitling:
                         if food['id'] != self.eating_food_id
                     ]
                     self.eating_food_id = None # Clear food ID
+                
+                self.update_passive(time_delta=0) # Update stress based on new hunger
+                stress_after_action = self.stress
+                was_successful = stress_after_action < stress_before_action
+
+                action_to_reinforce_name = self.action_chosen_by_network_for_learning
+                if action_to_reinforce_name in self.network.output_names:
+                    action_index = self.network.output_names.index(action_to_reinforce_name)
+                    self.network.apply_learning(action_index, was_successful)
+                
                 self.current_action = "idle"
                 # Emoji will be updated in update_passive
 
@@ -195,6 +236,20 @@ class Bitling:
                 self.energy = min(100, self.energy + 10 * time_delta) # Gradual energy restore
             else:
                 self.energy = 100 # Fully restore energy
+                
+                self.update_passive(time_delta=0) # Update stress based on new energy
+                stress_after_action = self.stress
+                was_successful = stress_after_action < stress_before_action
+
+                action_to_reinforce_name = self.action_chosen_by_network_for_learning
+                # "seeking_sleep" is the action the network chooses.
+                # We check if this choice led to successful sleep (energy restoration).
+                if action_to_reinforce_name == "seeking_sleep":
+                    # Find the index for "seeking_sleep" to reinforce that choice
+                    if "seeking_sleep" in self.network.output_names:
+                        action_index = self.network.output_names.index("seeking_sleep")
+                        self.network.apply_learning(action_index, was_successful)
+                
                 self.current_action = "idle"
                 # Emoji will be updated in update_passive based on new energy
 

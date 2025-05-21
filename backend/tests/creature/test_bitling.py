@@ -1,6 +1,7 @@
 import unittest
 import sys
 import os
+import math # Added math import
 
 # Adjust the Python path to include the 'backend' directory
 # This assumes the tests are run from the root directory containing 'backend'
@@ -152,6 +153,40 @@ class TestBitling(unittest.TestCase):
         self.bitling.update_passive(0.1)
         # New stress: (20/100)*50 + ((100-100)/100)*50 = 10 + 0 = 10
         self.assertLess(self.bitling.stress, initial_stress, "Stress should be reduced after sleeping and restoring energy")
+
+    def test_perceive_environment(self):
+        """Test perception of food in the environment."""
+        # Test with no food
+        self.mock_environment.food_sources = []
+        distance, dx, dy = self.bitling.perceive_environment()
+        self.assertEqual(distance, float('inf'))
+        self.assertEqual(dx, 0.0)
+        self.assertEqual(dy, 0.0)
+
+        # Test with one food item
+        self.bitling.x = 50
+        self.bitling.y = 50
+        self.mock_environment.food_sources = [
+            {'id': 'food1', 'x': self.bitling.x + 30, 'y': self.bitling.y + 40, 'emoji': '🍎'}
+        ]
+        distance, dx, dy = self.bitling.perceive_environment()
+        self.assertAlmostEqual(distance, 50.0) # sqrt(30^2 + 40^2) = 50
+        self.assertAlmostEqual(dx, 30.0 / 50.0)
+        self.assertAlmostEqual(dy, 40.0 / 50.0)
+
+        # Test with multiple food items (ensure nearest is chosen)
+        # self.bitling.x is 50, self.bitling.y is 50 (from setUp)
+        # For this test, let's re-center the bitling for easier coordinate calculations
+        self.bitling.x = 0 
+        self.bitling.y = 0
+        self.mock_environment.food_sources = [
+            {'id': 'food_far', 'x': 30, 'y': 40, 'emoji': '🍎'},  # dist 50
+            {'id': 'food_near', 'x': 10, 'y': 0, 'emoji': '🍏'}   # dist 10
+        ]
+        distance, dx, dy = self.bitling.perceive_environment()
+        self.assertAlmostEqual(distance, 10.0)
+        self.assertAlmostEqual(dx, 1.0) # 10.0 / 10.0
+        self.assertAlmostEqual(dy, 0.0)  # 0.0 / 10.0
 
 if __name__ == '__main__':
     unittest.main()

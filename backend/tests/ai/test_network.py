@@ -6,7 +6,7 @@ import os
 # Adjust the Python path to include the 'backend' directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from backend.bitlings.ai.network import BitlingNetwork
+from backend.bitlings.ai.network import BitlingNetwork, MAX_PERCEIVABLE_DISTANCE
 
 class TestBitlingNetwork(unittest.TestCase):
 
@@ -20,19 +20,21 @@ class TestBitlingNetwork(unittest.TestCase):
     def test_network_initialization(self):
         """Test shapes of weights, biases, and activations."""
         self.assertIsNotNone(self.network.weights_input_hidden)
-        self.assertEqual(self.network.weights_input_hidden.shape, (3, 4))
+        # Updated for new input size (5)
+        self.assertEqual(self.network.weights_input_hidden.shape, (5, self.network.hidden_size)) 
         self.assertIsNotNone(self.network.weights_hidden_output)
-        self.assertEqual(self.network.weights_hidden_output.shape, (4, 5))
+        self.assertEqual(self.network.weights_hidden_output.shape, (self.network.hidden_size, self.network.output_size))
 
         self.assertIsNotNone(self.network.bias_hidden)
-        self.assertEqual(self.network.bias_hidden.shape, (4,))
+        self.assertEqual(self.network.bias_hidden.shape, (self.network.hidden_size,))
         self.assertIsNotNone(self.network.bias_output)
-        self.assertEqual(self.network.bias_output.shape, (5,))
+        self.assertEqual(self.network.bias_output.shape, (self.network.output_size,))
 
         self.assertIsNotNone(self.network.input_activations)
-        self.assertEqual(self.network.input_activations.shape, (3,))
+        # Updated for new input size (5)
+        self.assertEqual(self.network.input_activations.shape, (5,)) 
         self.assertIsNotNone(self.network.hidden_activations)
-        self.assertEqual(self.network.hidden_activations.shape, (4,))
+        self.assertEqual(self.network.hidden_activations.shape, (self.network.hidden_size,))
         self.assertIsNotNone(self.network.output_activations)
         self.assertEqual(self.network.output_activations.shape, (5,))
         
@@ -42,29 +44,56 @@ class TestBitlingNetwork(unittest.TestCase):
 
     def test_set_inputs(self):
         """Test input normalization."""
-        self.network.set_inputs(hunger=100, energy=0, food_nearby=True)
-        np.testing.assert_array_almost_equal(self.network.input_activations, [1.0, 0.0, 1.0])
+        # Test case 1: Basic values
+        self.network.set_inputs(hunger=100, energy=0, distance_to_food=10, food_dx=0.6, food_dy=-0.8)
+        expected_activations_1 = np.array([
+            1.0,                                 # hunger_norm
+            0.0,                                 # energy_norm
+            10.0 / MAX_PERCEIVABLE_DISTANCE,     # distance_norm
+            0.6,                                 # food_dx_norm
+            -0.8                                 # food_dy_norm
+        ])
+        np.testing.assert_array_almost_equal(self.network.input_activations, expected_activations_1)
 
-        self.network.set_inputs(hunger=0, energy=100, food_nearby=False)
-        np.testing.assert_array_almost_equal(self.network.input_activations, [0.0, 1.0, 0.0])
+        # Test case 2: Distance is float('inf')
+        self.network.set_inputs(hunger=0, energy=100, distance_to_food=float('inf'), food_dx=0.0, food_dy=0.0)
+        expected_activations_2 = np.array([0.0, 1.0, 1.0, 0.0, 0.0])
+        np.testing.assert_array_almost_equal(self.network.input_activations, expected_activations_2)
 
-        self.network.set_inputs(hunger=50, energy=75, food_nearby=True)
-        np.testing.assert_array_almost_equal(self.network.input_activations, [0.5, 0.75, 1.0])
-
-        # Test clipping
-        self.network.set_inputs(hunger=150, energy=-20, food_nearby=False)
-        np.testing.assert_array_almost_equal(self.network.input_activations, [1.0, 0.0, 0.0])
+        # Test case 3: Distance capping
+        self.network.set_inputs(hunger=50, energy=75, distance_to_food=1000, food_dx=0.1, food_dy=0.2)
+        expected_activations_3 = np.array([
+            0.5,                                 # hunger_norm
+            0.75,                                # energy_norm
+            1.0,                                 # distance_norm (1000 / 500 = 2.0, capped to 1.0)
+            0.1,                                 # food_dx_norm
+            0.2                                  # food_dy_norm
+        ])
+        np.testing.assert_array_almost_equal(self.network.input_activations, expected_activations_3)
+        
+        # Test case 4: Clipping for hunger and energy
+        self.network.set_inputs(hunger=150, energy=-20, distance_to_food=50, food_dx=-1.2, food_dy=1.2)
+        expected_activations_4 = np.array([
+            1.0,                                 # hunger_norm (clipped)
+            0.0,                                 # energy_norm (clipped)
+            50.0 / MAX_PERCEIVABLE_DISTANCE,     # distance_norm
+            -1.0,                                # food_dx_norm (clipped)
+            1.0                                  # food_dy_norm (clipped)
+        ])
+        np.testing.assert_array_almost_equal(self.network.input_activations, expected_activations_4)
 
 
     def test_feedforward_step_and_settle(self):
         """Test the feedforward mechanism (via settle)."""
-        self.network.input_activations = np.array([1.0, 0.0, 1.0])
+        # Updated input_activations to 5 elements
+        self.network.input_activations = np.array([1.0, 0.0, 0.1, 0.5, -0.5]) 
         
         # Set known weights and biases for predictability
-        self.network.weights_input_hidden = np.full((3, 4), 0.5)
-        self.network.bias_hidden = np.full(4, 0.1)
-        self.network.weights_hidden_output = np.full((4, 5), 0.5)
-        self.network.bias_output = np.full(5, 0.1)
+        # Updated weights_input_hidden shape to (5, 4)
+        self.network.weights_input_hidden = np.full((5, self.network.hidden_size), 0.5) 
+        self.network.bias_hidden = np.full(self.network.hidden_size, 0.1)
+        self.network.weights_hidden_output = np.full((self.network.hidden_size, self.network.output_size), 0.5)
+        self.network.bias_output = np.full(self.network.output_size, 0.1)
 
         self.network.settle(iterations=5) # settle calls _feedforward_step
 
@@ -99,15 +128,18 @@ class TestBitlingNetwork(unittest.TestCase):
 
     def test_apply_learning_successful_action(self):
         """Test Hebbian learning rule for successful and unsuccessful actions."""
-        self.network.input_activations = np.array([1.0, 0.5, 1.0]) # Hunger, Energy, FoodNearby
+        # Updated input_activations to 5 elements
+        self.network.input_activations = np.array([1.0, 0.5, 0.1, 0.2, -0.2]) 
         # Simulate that these inputs led to some hidden activations during feedforward
-        self.network.hidden_activations = np.array([0.5, 0.6, 0.4, 0.7]) 
+        self.network.hidden_activations = np.array([0.5, 0.6, 0.4, 0.7]) # Assuming 4 hidden units
         
         chosen_action_index = 0 # "seeking_food"
 
         # Store initial weights
-        initial_weight_ih_00 = self.network.weights_input_hidden[0, 0].copy() # Input 0 to Hidden 0
-        initial_weight_ho_00 = self.network.weights_hidden_output[0, chosen_action_index].copy() # Hidden 0 to Output action
+        # Example: Input 0 (hunger) to Hidden 0
+        initial_weight_ih_00 = self.network.weights_input_hidden[0, 0].copy() 
+        # Example: Hidden 0 to Output action (seeking_food)
+        initial_weight_ho_00 = self.network.weights_hidden_output[0, chosen_action_index].copy() 
 
         # Apply learning for a successful action
         self.network.apply_learning(chosen_action_index=chosen_action_index, was_successful=True)

@@ -1,65 +1,78 @@
 import numpy as np
 import math
 
+MAX_PERCEIVABLE_DISTANCE = 500.0 # Class/Module Constant
+
 class BitlingNetwork:
     """
     A simple feedforward neural network for Bitling decision-making.
     """
-    def __init__(self, input_size=3, hidden_size=4, output_size=5):
+    def __init__(self, hidden_size=4, output_size=5): # Removed input_size from signature
         """
         Initialize the neural network's structure, weights, and biases.
 
         Args:
-            input_size (int): Number of input neurons.
             hidden_size (int): Number of hidden neurons.
             output_size (int): Number of output neurons.
         """
-        self.input_size = input_size
+        # Define names for input and output layers for clarity
+        self.input_names = ["hunger", "energy", "distance_to_food", "food_dx", "food_dy"]
+        self.output_names = ["seeking_food", "eating", "seeking_sleep", "wandering", "idle"]
+
+        self.input_size = len(self.input_names) # Updated input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        # Define names for input and output layers for clarity
-        self.input_names = ["hunger", "energy", "food_nearby"]
-        self.output_names = ["seeking_food", "eating", "seeking_sleep", "wandering", "idle"]
-
-        # Ensure the provided sizes match the names, or adjust if necessary
-        # For this setup, we'll assume the default sizes match the names.
-        # If input_size, hidden_size, output_size were different from the length of these
-        # lists, we'd need a more dynamic way to handle names or raise an error.
 
         # Initialize weights with small random values between -0.5 and 0.5
-        self.weights_input_hidden = np.random.rand(self.input_size, self.hidden_size) - 0.5
-        self.weights_hidden_output = np.random.rand(self.hidden_size, self.output_size) - 0.5
+        self.weights_input_hidden = np.random.uniform(-0.5, 0.5, (self.input_size, self.hidden_size))
+        self.weights_hidden_output = np.random.rand(self.hidden_size, self.output_size) - 0.5 # Kept as is
 
         # Initialize biases with small random values between -0.5 and 0.5
-        self.bias_hidden = np.random.rand(self.hidden_size) - 0.5
-        self.bias_output = np.random.rand(self.output_size) - 0.5
+        self.bias_hidden = np.random.rand(self.hidden_size) - 0.5 # Kept as is
+        self.bias_output = np.random.rand(self.output_size) - 0.5 # Kept as is
         
         # Alternative: Initialize biases with zeros
         # self.bias_hidden = np.zeros(self.hidden_size)
         # self.bias_output = np.zeros(self.output_size)
 
         # Initialize activation storage (using numpy arrays for efficient calculations)
-        self.input_activations = np.zeros(self.input_size, dtype=float)
+        self.input_activations = np.zeros(self.input_size, dtype=float) # Resized
         self.hidden_activations = np.zeros(self.hidden_size, dtype=float)
         self.output_activations = np.zeros(self.output_size, dtype=float)
 
         self.learning_rate = 0.05
 
-    def set_inputs(self, hunger: float, energy: float, food_nearby: bool):
+    def set_inputs(self, hunger: float, energy: float, distance_to_food: float, food_dx: float, food_dy: float):
         """
         Normalize and set the input activations for the network.
         Args:
             hunger (float): Current hunger level (0-100).
             energy (float): Current energy level (0-100).
-            food_nearby (bool): Whether food is nearby.
+            distance_to_food (float): Distance to the nearest food.
+            food_dx (float): Normalized x-component of direction to food.
+            food_dy (float): Normalized y-component of direction to food.
         """
-        if len(self.input_names) != 3:
-            raise ValueError("Input names list length does not match expected inputs (hunger, energy, food_nearby)")
+        hunger_norm = np.clip(hunger / 100.0, 0.0, 1.0)
+        energy_norm = np.clip(energy / 100.0, 0.0, 1.0)
 
-        self.input_activations[self.input_names.index("hunger")] = np.clip(hunger / 100.0, 0.0, 1.0)
-        self.input_activations[self.input_names.index("energy")] = np.clip(energy / 100.0, 0.0, 1.0)
-        self.input_activations[self.input_names.index("food_nearby")] = 1.0 if food_nearby else 0.0
+        if distance_to_food == float('inf') or distance_to_food > MAX_PERCEIVABLE_DISTANCE:
+            distance_norm = 1.0
+        else:
+            distance_norm = min(distance_to_food / MAX_PERCEIVABLE_DISTANCE, 1.0)
+        
+        # food_dx and food_dy are assumed to be already normalized (-1 to 1)
+        # We can clip them just in case for robustness, though they should be correct from perceive_environment
+        food_dx_norm = np.clip(food_dx, -1.0, 1.0)
+        food_dy_norm = np.clip(food_dy, -1.0, 1.0)
+
+        self.input_activations = np.array([
+            hunger_norm, 
+            energy_norm, 
+            distance_norm, 
+            food_dx_norm, 
+            food_dy_norm
+        ], dtype=float)
         
     def _sigmoid(self, x):
         """

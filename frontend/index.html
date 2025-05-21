@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" /> <!-- Update icon -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bitlings</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #111;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* Make canvas take up space */
+    #ui-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      font-family: sans-serif;
+      z-index: 10;
+      /* Ensure UI is on top */
+    }
+
+    #ui-overlay button {
+      margin-top: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Container for PixiJS canvas -->
+  <div id="app"></div>
+
+  <!-- Simple HTML overlay for UI elements -->
+  <div id="ui-overlay">
+    <div>Status: <span id="status-text">Connecting...</span></div>
+    <div>Bitlings: <span id="bitling-count">0</span></div>
+    <button id="add-food-button">Add Food (Click Canvas)</button>
+  </div>
+
+  <!-- Entry point for TypeScript -->
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

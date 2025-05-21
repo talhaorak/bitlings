@@ -1,0 +1,14 @@
+- Implement Core AI (`BM-Stress` Basics):
+    - Connect Bitling needs directly to `Stress` generation.
+    - Implement basic BM-like network settling.
+    - Link network states to action probabilities.
+    - Implement basic Hebbian learning based on `Stress` reduction.
+- Implement Compartments: Structure the AI into the defined compartments.
+- Refine Hard-coded Behaviors: Improve obstacle avoidance, pathfinding to food/sleep spots.
+- Implement Temporal Learning: Add eligibility traces for time-delayed associations (especially for text input).
+- Implement Text Input: Allow user text input; handle unknown words by growing the network dynamically.
+- Replace Placeholders: Integrate proper 2D sprite assets and animations.
+- World Persistence: Save and load simulation state.
+- UI Enhancements: More detailed status displays, interaction options.
+- Scalability & Optimization: Address performance bottlenecks as the simulation grows.
+- Dynamic Topology: Fully implement network pruning and growth rules.
